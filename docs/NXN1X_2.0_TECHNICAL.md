@@ -28,7 +28,9 @@
 NXN1X 2.0은 Eden(yuzu 계열)을 기반으로 한 Nintendo Switch / Switch 2 에뮬레이터다. 대상은 Windows ARM64이고, 현재 기준 하드웨어는 NVIDIA RTX Spark N1X 노트북이다.
 
 - 버전: 2.0 (창 제목 "NXN1X 2.0", `source\src\yuzu\yuzu.rc` FileDescription/ProductName).
-- 뼈대: **SnapRyu 2.0**. NXN1X 2.0은 SnapRyu 2.0을 뼈대로 만들었다. SnapRyu 2.0은 이름만 남았고 Ryujinx 기반이 아니다. Go 모드(폰 컨트롤러: 페어링·입력·진동·원격 플레이, `nxn1x_go_host.dll` + `source\src\common\nxn1x_go.cpp`)도 SnapRyu 2.0에서 왔다. 2.0에서는 Go 모드를 숨겨 두었다(`NXN1X_GO_MODE=1`로 표시). 앞으로 Go는 SnapRyu 2.0을 원본으로 두고 NXN1X는 그 DLL과 API 헤더만 받아 쓴다.
+- 뼈대: **SnapRYU 2.0**. NXN1X 2.0은 SnapRYU 2.0(이름만 남았고 Ryujinx 기반 아님)을 뼈대로 만들었다. Go 모드도 여기서 왔고 2.0에서는 숨겨 두었다(`NXN1X_GO_MODE=1`로 표시).
+- 주로 바뀐 곳: `video_core`(NVN 경로, Vulkan 렌더러), `core`(NCE 실행 경로: 명령 처리, x18/FPCR, 패처; 로더), `shader_recompiler`, `yuzu` UI, `host/dm/windows`(Vulkan 백엔드).
+- 대상 기기: SnapRYU 2.0은 Snapdragon X Elite(Adreno/Turnip), NXN1X 2.0은 NVIDIA N1X.
 
 - GPU: Blackwell 계열, PCI 10de:2e03, 드라이버 621.24, Vulkan 1.4.357. Windows 11 ARM64 28000.3501, WDDM 3.2, 하드웨어 스케줄링 켜짐.
 - CPU: P코어 10개 + E코어 10개의 혼합 구성. VRAM 예산 약 80 GB.
@@ -41,12 +43,12 @@ NXN1X 2.0은 Eden(yuzu 계열)을 기반으로 한 Nintendo Switch / Switch 2 �
 
 NXN1X는 원래 Qualcomm Snapdragon X Elite(Adreno GPU, Turnip/Mesa 드라이버, 균일 코어 12개)용 프로젝트였다.
 
-- SnapRyu(당시 X Elite 프로젝트)를 복사해 시작했다. 지금의 뼈대는 SnapRyu 2.0이다(1.1 참고).
+- SnapRYU(당시 X Elite 프로젝트)를 복사해 시작했다. 지금의 뼈대는 SnapRYU 2.0이다(1.1 참고).
 - 2026-11부터 N1X에서 실행한다. N1X로 옮긴 직후에는 NCE가 전혀 동작하지 않았고, 수정 후에도 성능은 처음부터 낮았다(나중에 생긴 회귀가 아님).
 - 호스트 레이어(`host\dm\windows`)는 Adreno/Turnip에서 튜닝됐다. N1X에서 비용이나 버그가 나오면 Adreno 시기 기본값인지 먼저 확인한다. Adreno 호환은 더 이상 유지 대상이 아니다.
 
 Adreno 시기 문서와 흔적:
-- `source\README.md`: "Windows ARM64와 Qualcomm Adreno 환경" 대상의 옛 계획(제목은 2.0으로 맞춤, 내용은 Adreno 시기). NPU 프레임 생성(QNN/ORT), TotK 1080p 고정, `tools/build.ps1` 등.
+- 옛 `source\README.md`(2.0 배포 전): "Windows ARM64와 Qualcomm Adreno 환경" 대상의 계획. NPU 프레임 생성(QNN/ORT), TotK 1080p 고정, `tools/build.ps1` 등. 2.0 배포 때 새로 써서 지금은 저장소 README를 가리킨다.
 - `README.md`(루트): Turnip/Mesa 소스, F1R/F2R 드라이버 오버레이, LSFG 통합을 담은 소스 스냅샷 설명.
 - `docs\nvn-memory\`: 2026-11-16~18의 메모리 기반 작업(F2~F5Z 단계). 12 GB급 장치와 Turnip 전제. 대부분 "runtime pending" 상태로 끝났다.
 - 코드에 남은 흔적: Switch 2 부팅 때 `TU_GS_ONCE=1`(Turnip 전용 환경 변수)을 설정한다(`source\src\core\nvn\nvn_layer.cpp` `OnAppLoad`). `source\src\video_core\renderer_vulkan\vk_npu_frame_gen.*`도 남아 있다.
@@ -1011,7 +1013,7 @@ ninja -C build/release                      # 또는: ninja -C build/release bin
 
 - `tools\build_nx2.py`: CMake/Ninja + MSYS2 ARM64(루트 `README.md`).
 - `tools\build_turnip_f1r.py`, `build_turnip_f2r.py`: Turnip/Mesa 증분 빌드. 다른 donor 빌드의 오브젝트에 의존하므로 깨끗한 빌드 명령이 아니다.
-- **불일치**: `source\README.md`는 `tools/build.ps1`(`-Diagnostic`)를 빌드 도구로 적는다. 그러나 현재 `tools\`에 `build.ps1`이 없다. 정식판/진단판 두 exe(`bin/NXN1X.exe`, `bin/NXN1X-Diagnostic.exe`) 구성도 현재 빌드 기록과 맞지 않는다.
+- **(해결됨)** 옛 `source\README.md`가 없는 `tools/build.ps1`(`-Diagnostic`)과 정식판/진단판 두 exe를 빌드 방법으로 적었다. 2.0 배포 때 README를 새로 쓰면서 빌드는 `ninja -C build/release`로 정리했다.
 
 출처: `README.md`, `source\README.md`, `tools\` 목록.
 
@@ -1057,7 +1059,7 @@ ninja -C build/release                      # 또는: ninja -C build/release bin
 
 | # | 내용 | 관련 파일 |
 |---|---|---|
-| 1 | `source\README.md`는 Adreno + NPU 프레임 생성 + `tools/build.ps1` + 정식/진단 두 exe를 설명한다(옛 내용; 제목만 2.0으로 맞춤). 현재 대상(N1X), 빌드(`ninja -C build/release`), 프레임 생성(DLSS-G/광학)과 다르다. `tools\build.ps1`은 없다 | `source\README.md`, `tools\` |
+| 1 | (해결됨) 옛 `source\README.md`·루트 `README.md`가 Adreno 시기 내용(NPU 프레임 생성, 없는 `tools/build.ps1`, 두 exe)이었다. 2.0 배포 때 둘 다 새로 썼다 | `README.md`, `source\README.md` |
 | 2 | 루트 `README.md`는 Turnip/Mesa, LSFG가 있는 스냅샷이라고 설명한다. 현재 N1X 빌드와 관계가 문서에 없다 | `README.md` |
 | 3 | `host\docs\`(development, playing, settings, frontends, env_switches.tsv, reference)는 nxnative(iOS/Mac, Metal) 문서다. NXN1X Windows용 사용자 문서는 없다 | `host\docs\*` |
 | 4 | 코드 주석이 가리키는 `NVN_HOST_BRIDGE.md`, `docs/lane_b/SHADER_EDEN_B.md`, `docs/lane_a/A1_BUILD.md`, `docs/lane_a/apply_sv1.py`가 저장소에 없다 | `nvn_gate.cpp`, `nvn_shader_bridge.h`, `nvnh_rt.c`, `sv1.cpp` |
