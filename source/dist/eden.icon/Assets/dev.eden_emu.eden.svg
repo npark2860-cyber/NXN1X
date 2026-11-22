@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="2048" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">NXN1X — N 1 X isometric letter mark</title>
+  <desc id="desc">An isometric cube suggested by a graphite-to-gray gradient top face with a bold footless numeral one cut out transparently, a dark-to-silver gradient N on the left and a deep-green-to-lime gradient X on the right. The numeral has a long upper flag, the same 280-unit local stem width as N, and fills 94 percent of the top-face height. No outlines, side panels, shadows, or background. Stronger top-to-bottom gradients. One common orthographic isometric projection with 440-unit projected edges.</desc>
+  <metadata>Projection axes: (381.051177665153,220), (-381.051177665153,220), (0,440). Local face coordinates 0..1000. Identical face inset 14; no external fonts or assets.</metadata>
+  <defs>
+    <linearGradient id="top-grad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1000" y2="1000">
+      <stop offset="0" stop-color="#707070"/>
+      <stop offset="1" stop-color="#C8C8C8"/>
+    </linearGradient>
+    <linearGradient id="n-grad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="1000">
+      <stop offset="0" stop-color="#75848F"/>
+      <stop offset="1" stop-color="#EAF1F5"/>
+    </linearGradient>
+    <linearGradient id="x-grad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="1000">
+      <stop offset="0" stop-color="#356700"/>
+      <stop offset="1" stop-color="#86D600"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(0 -24)">
+    <g id="top-one" transform="matrix(0.381051177665153 0.22 -0.381051177665153 0.22 512 72)">
+      <path transform="translate(14 14) scale(0.972)" fill="url(#top-grad)" fill-rule="evenodd" d="M 0,0 H 1000 V 1000 H 0 Z M 178.72941,270.00000 L 418.72941,30.00000 L 698.72941,30.00000 L 698.72941,970.00000 L 418.72941,970.00000 L 418.72941,350.00000 L 178.72941,590.00000 Z"/>
+    </g>
+    <g id="left-n" transform="matrix(0.381051177665153 0.22 0 0.44 130.948822334847 292)">
+      <path transform="translate(14 14) scale(0.972)" fill="url(#n-grad)" d="M 0,0 L 280,0 L 720,620 L 720,0 L 1000,0 L 1000,1000 L 720,1000 L 280,380 L 280,1000 L 0,1000 Z"/>
+    </g>
+    <g id="right-x" transform="matrix(0.381051177665153 -0.22 0 0.44 512 512)">
+      <path transform="translate(14 14) scale(0.972)" fill="url(#x-grad)" d="M 0,0 L 305,0 L 500,310 L 695,0 L 1000,0 L 660,500 L 1000,1000 L 695,1000 L 500,690 L 305,1000 L 0,1000 L 340,500 Z"/>
+    </g>
+  </g>
+</svg>
+

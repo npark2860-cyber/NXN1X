@@ -1,0 +1,20 @@
+#version 450
+// hybrid3 (design\ATOMIC_STAGING_DESIGN.md 2.4): a staged storage buffer back into the game's imported pages, only the bytes its dispatch changed.
+// S: the device-local copy the dispatch ran on; P: the snapshot taken with it; D: the imported range. A byte where S != P was written by the GPU and goes into D;
+// every other byte of D is left as it is (the CPU may have written it meanwhile). Plain loads and stores on D (no atomics: they are what is slow there)
+layout(local_size_x = 256) in;
+layout(std430, binding = 0) readonly buffer S { uint s[]; };
+layout(std430, binding = 1) readonly buffer P { uint p[]; };
+layout(std430, binding = 2) buffer D { uint d[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= uint(d.length())) return;   // (the three are bound with the same length)
+    uint a = s[i], b = p[i];
+    if (a == b) return;
+    uint x = a ^ b, m = 0u;
+    if ((x & 0x000000ffu) != 0u) m |= 0x000000ffu;
+    if ((x & 0x0000ff00u) != 0u) m |= 0x0000ff00u;
+    if ((x & 0x00ff0000u) != 0u) m |= 0x00ff0000u;
+    if ((x & 0xff000000u) != 0u) m |= 0xff000000u;
+    d[i] = m == 0xffffffffu ? a : (d[i] & ~m) | (a & m);
+}

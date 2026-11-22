@@ -1,0 +1,54 @@
+#version 450
+// occ-s2 / occ-s3 / occ-s3fast (design\OCCLUSION_REDESIGN.md steps 2 and 3; gfx_vk_core.c occ2_resolve): one dispatch per resolve point, one invocation per entry.
+// P (host-visible, this resolve's): P[0] = the entries, then from word 4 one entry of 16 words each:
+//   kind 0, a samples-passed report: [1] its first query ring slot, [2] its slots, [3] the window's base slot (~0: none), [4] its record index, [5] [6] its timestamp (low, high),
+//      [7] occ-s3fast: its staging slot (~0: none; the guest's words of one resolve point in address order, copied from STG in runs)
+//      REC[record] = {count, timestamp} (the guest's 16-byte report, copied into the guest's word afterwards), PRED[record] = count != 0
+//   kind 1, a running base (a window longer than a quarter of the ring): [1] first slot, [2] slots, [3] base in (~0: none), [4] base out: BASE[out] = base in + their sum
+//   kind 2, a render condition's own predicate: [1] its predicate word; the two operands at [2..7] and [8..13]: [0] 0 a constant ([1] low, [2] high), 1 a report resolved
+//      by an earlier dispatch ([1] its record index), 2 a report of this dispatch ([1] first slot, [2] slots, [3] base slot): PRED[word] = x != y
+// D (device-local): RES = per query ring slot {result low, high, availability low, high} (vkCmdCopyQueryPoolResults, 64-bit with availability, waited), REC = per record
+// {count low, high, timestamp low, high}, BASE = per base slot {low, high}, PRED = 32-bit predicate words (conditional rendering reads them)
+// 64-bit sums as two 32-bit words (no shaderInt64 needed). Plain loads and stores, on device-local memory only: no atomics (none needed: every entry writes its own words)
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer P { uint p[]; };
+layout(std430, binding = 1) buffer D { uint d[]; };
+const uint RING = 65536u;
+const uint RES = 0u;          // RING * 4 words
+const uint REC = 262144u;     // 65536 records * 4 words
+const uint BASE = 524288u;    // 4096 base slots * 2 words
+const uint PRED = 532480u;    // 65536 report predicates, then 4096 condition predicates
+const uint STG = 602112u;     // occ-s3fast: 32768 staging slots * 4 words (STG[slot] = REC[record], in the guest's address order)
+uvec2 add64(uvec2 a, uvec2 b) { uint c; uint lo = uaddCarry(a.x, b.x, c); return uvec2(lo, a.y + b.y + c); }
+uvec2 wsum(uint s0, uint n, uint base) {
+    uvec2 t = base == 0xffffffffu ? uvec2(0u) : uvec2(d[BASE + 2u * base], d[BASE + 2u * base + 1u]);
+    for (uint k = 0u; k < n; k++) {
+        uint o = RES + 4u * ((s0 + k) & (RING - 1u));
+        if ((d[o + 2u] | d[o + 3u]) != 0u) t = add64(t, uvec2(d[o], d[o + 1u]));   // (every slot copied is available: unrecorded draws got an empty query)
+    }
+    return t;
+}
+uvec2 operand(uint e) {
+    uint k = p[e];
+    if (k == 0u) return uvec2(p[e + 1u], p[e + 2u]);
+    if (k == 1u) { uint r = REC + 4u * p[e + 1u]; return uvec2(d[r], d[r + 1u]); }
+    return wsum(p[e + 1u], p[e + 2u], p[e + 3u]);
+}
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= p[0]) return;
+    uint e = 4u + 16u * i, k = p[e];
+    if (k == 0u) {
+        uvec2 s = wsum(p[e + 1u], p[e + 2u], p[e + 3u]); uint r = p[e + 4u];
+        d[REC + 4u * r] = s.x; d[REC + 4u * r + 1u] = s.y; d[REC + 4u * r + 2u] = p[e + 5u]; d[REC + 4u * r + 3u] = p[e + 6u];
+        d[PRED + r] = (s.x | s.y) != 0u ? 1u : 0u;
+        uint g = p[e + 7u];
+        if (g != 0xffffffffu) { d[STG + 4u * g] = s.x; d[STG + 4u * g + 1u] = s.y; d[STG + 4u * g + 2u] = p[e + 5u]; d[STG + 4u * g + 3u] = p[e + 6u]; }
+    } else if (k == 1u) {
+        uvec2 s = wsum(p[e + 1u], p[e + 2u], p[e + 3u]); uint b = p[e + 4u];
+        d[BASE + 2u * b] = s.x; d[BASE + 2u * b + 1u] = s.y;
+    } else {
+        uvec2 x = operand(e + 2u), y = operand(e + 8u);
+        d[PRED + p[e + 1u]] = any(notEqual(x, y)) ? 1u : 0u;
+    }
+}

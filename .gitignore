@@ -1,0 +1,64 @@
+# NXN1X repository: source, host, docs and design only.
+# Everything else in this workspace (builds, backups, dumps, logs, measurement scratch, other projects' copies) stays local.
+
+/*
+!/.gitignore
+!/README.md
+!/CLAUDE.md
+!/source/
+!/host/
+!/docs/
+!/design/
+!/tools/
+
+# dependency caches and build trees
+/tools/cpm/
+/source/externals/*/build/
+build/
+out/
+*.obj
+*.o
+*.pdb
+*.exe
+*.dll
+*.lib
+*.a
+
+# logs, dumps, captures
+/docs/build-logs/
+*.log
+*.dmp
+*.mdmp
+*.ppm
+*.ppm.f32
+crashring*.bin
+
+# never: keys, firmware, saves, game files
+*.keys
+prod.keys
+title.keys
+*.nsp
+*.nup
+*.xci
+*.nca
+*.nro
+*.nso
+*.npdm
+**/nand/
+**/sdmc/
+**/user/
+
+# editor / OS
+.vs/
+.vscode/
+*.swp
+Thumbs.db
+desktop.ini
+
+# build outputs inside tool folders; Adreno-era records with local paths
+**/obj/
+**/bin/Release/
+**/bin/Debug/
+/docs/nvn-memory/
+/docs/lsfg-audit-*/
+/tools/build_turnip_*

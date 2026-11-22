@@ -1,0 +1,11 @@
+#version 450
+// Indirect quads (gfx_vk_exec.c ixq_args): an NVN DrawArraysIndirect record {count, instances, first, base instance} becomes a
+// VkDrawIndexedIndirectCommand over the shared quad index buffer, as the upstream Metal backend's ixc_arrays (dm/gfx/msl/ixc.metal).
+// o[5]: the record's word in binding 0, o[6]: the most indices the quad index buffer holds (both written by the CPU).
+layout(local_size_x = 1) in;
+layout(std430, binding = 0) readonly buffer R { uint r[]; };
+layout(std430, binding = 1) buffer O { uint o[]; };
+void main() {
+    uint w = o[5];
+    o[0] = min(r[w] / 4u * 6u, o[6]); o[1] = r[w + 1u]; o[2] = 0u; o[3] = r[w + 2u]; o[4] = r[w + 3u];
+}

@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#include <atomic>
+#include <cstring>
+
+#include "common/logging/log.h"
+#include "common/settings.h"
+#include "core/nvn/nvn_layer.h"
+
+#if defined(NXN1X_NVN_HOST)
+#include "nvnh_api.h"
+#endif
+
+namespace Core::NvnLayer {
+
+namespace {
+std::atomic<bool> g_wanted{false};
+
+#if defined(NXN1X_NVN_HOST)
+// The host layer's "[dm] ..." lines (dm_log_line, nvnh_rt.c) into NXN1X's log; [RED] marks its errors
+void HostLogLine(const char* line) {
+    if (std::strstr(line, "[RED]") != nullptr) {
+        LOG_ERROR(Render_Vulkan, "[nvn] {}", line);
+    } else {
+        LOG_INFO(Render_Vulkan, "[nvn] {}", line);
+    }
+}
+
+void ReportLinkedOnce() {
+    static bool reported = false;
+    if (reported) {
+        return;
+    }
+    reported = true;
+    nvnh_set_log(HostLogLine);
+    const nvnh_force_t* force{};
+    const size_t nforce = nvnh_force_entries(&force);
+    LOG_INFO(Core, "NVN host layer linked: {} NVN functions, {} take-overs by symbol (first: {})",
+             nvnh_nfunc(), nforce, nforce ? force[0].name : "-");
+}
+#endif
+} // Anonymous namespace
+
+bool Available() {
+#if defined(NXN1X_NVN_HOST)
+    return true;
+#else
+    return false;
+#endif
+}
+
+void OnAppLoad() {
+    g_wanted.store(false, std::memory_order_relaxed);
+#if defined(NXN1X_NVN_HOST)
+    ReportLinkedOnce();
+    if (Settings::values.nce_gpu_path.GetValue() != Settings::NceGpuPath::Nvn) {
+        LOG_INFO(Core, "GPU path: Emulation (nce_gpu_path)");
+        return;
+    }
+    if (!Settings::IsNceEnabled()) {
+        LOG_WARNING(Core, "GPU path: Emulation; NVN was asked for but NCE does not run this game");
+        return;
+    }
+    if (nvnh_vk_active()) {
+        // vk_init ran on an earlier boot's device: the layer's pools, caches and threads are not reset between boots
+        LOG_WARNING(Core, "GPU path: Emulation; the NVN layer already ran in this process (restart NXN1X to use NVN again)");
+        return;
+    }
+    LOG_INFO(Core, "GPU path: NVN host layer");
+    g_wanted.store(true, std::memory_order_relaxed);
+#endif
+}
+
+bool Wanted() {
+    return g_wanted.load(std::memory_order_relaxed);
+}
+
+void Refuse(std::string_view why) {
+#if defined(NXN1X_NVN_HOST)
+    if (!g_wanted.exchange(false, std::memory_order_relaxed)) {
+        return;
+    }
+    LOG_WARNING(Core, "GPU path: Emulation; {}", why);
+#else
+    (void)why;
+#endif
+}
+
+} // namespace Core::NvnLayer

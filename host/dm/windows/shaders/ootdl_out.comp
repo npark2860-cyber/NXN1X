@@ -1,0 +1,28 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_basic : require
+// ootdlss (gfx_vk_exec.c ootdl_*): NVIDIA DLSS's picture into Ocarina of Time's gameplay upscale's output, what the network's
+// own output holds: linear colour. From Longshot's gpu/vk/shaders/dlss_out.comp (refer\Longshot, GPL-3.0). pc.square 1: DLSS was
+// given the perceptual (square root) colour, squared back here; 0: it was given linear light (the HDR feature), written as it is.
+// DLSS's picture is at the output's size; another size is scaled with the sampler's linear filter.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0) uniform sampler2D src;
+layout(binding = 1, r11f_g11f_b10f) uniform writeonly image2D dst;
+layout(push_constant) uniform P { ivec2 size; int square; } pc;
+layout(binding = 2, std430) buffer Stats { uint bad_color, bad_depth, bad_mv, in_max, out_max, out_bad, rsv0, rsv1; } st;   // (ootdl_prep.comp's: the output's largest component and its non-finite texels)
+void main() {
+    const ivec2 g = ivec2(gl_GlobalInvocationID.xy);
+    const bool inside = all(lessThan(g, pc.size));   // (no early return: subgroupMax below wants every invocation)
+    const ivec2 gc = min(g, pc.size - 1);
+    vec3 c = all(equal(textureSize(src, 0), pc.size)) ? texelFetch(src, gc, 0).rgb
+                                                     : textureLod(src, (vec2(gc) + 0.5) / vec2(pc.size), 0.0).rgb;
+    if (any(isnan(c)) || any(isinf(c))) { if (inside) atomicAdd(st.out_bad, 1u); c = vec3(0.0); }
+    c = max(c, vec3(0.0));
+    if (pc.square != 0) c *= c;
+    // (11-21, NPARK: the whole screen black while DLSS ran): an HDR feature's picture is unbounded, and an infinity or a NaN written into the layer spreads
+    // through the game's later passes (its exposure and bloom read the picture) to every pixel; the layer keeps finite values within B10G11R11's range
+    c = min(c, vec3(64512.0));
+    { const float m = subgroupMax(max(c.r, max(c.g, c.b))); if (subgroupElect()) atomicMax(st.out_max, floatBitsToUint(m)); }   // (one atomic a subgroup)
+    { const uint q = subgroupAdd(inside ? uint(min(c.r + c.g + c.b, 3.0) * 64.0) : 0u); if (subgroupElect()) atomicAdd(st.rsv0, q); }   // (the output's signature: whether DLSS's picture changed)
+    if (inside) imageStore(dst, g, vec4(c, 1.0));
+}

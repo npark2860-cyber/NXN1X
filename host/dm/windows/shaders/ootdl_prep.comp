@@ -1,0 +1,120 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_basic : require
+// ootdlss (gfx_vk_exec.c ootdl_*): NVIDIA DLSS's inputs for Ocarina of Time's gameplay upscale, at the render size, in one pass.
+// From Longshot's gpu/vk/shaders/dlss_prep.comp (refer\Longshot, GPL-3.0: the colour, the depth and the reprojected motion) and
+// NX2navi's runtime/shaders/dlaa_mv.comp (refer\NX2navi-main, MIT: the depth check that finds what moves by itself, zfit, and its
+// bias mask).
+//  - colour: the network's input as it samples it, the square root of the tonemapped scene colour (perceptual, LDR): DLSS takes
+//    it as LDR colour, clamped to 0..1; a NaN is taken as black (one NaN spreads through an upscaler's history)
+//  - depth: the scene's depth as a plain float image
+//  - motion: where each pixel was in the frame before, in render pixels (x right, y down: then - now). The game has no motion
+//    vectors: the scene depth is taken back to clip space and through the frame before's camera (pc.reproject: this frame's
+//    jittered clip space to the frame before's without its jitter); this frame's jitter is taken off. pc.flags bit 0: motion
+//    (none on a frame without the frame before's camera)
+//  - the depth check (pc.flags bit 1: on; bit 2: dist_prev holds the frame before's view distances at this size): the camera's
+//    motion predicts how far the surface was in the frame before at the place it came from; where the frame before's distance
+//    there disagrees (over 4 %), the surface moved by itself. When the frame before's distance at the same pixel agrees, it kept
+//    its place on screen (the character the camera follows): its vector is zero. Either way the pixel gets pc.zmask in the bias
+//    mask, so DLSS takes this frame's colour where its history holds something else (Navi's and Link's trails)
+// The game's clip space: depth from -1 to 1 (NVN's default), y up, the picture's rows top down.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0) uniform sampler2D scene;
+layout(binding = 1) uniform sampler2D scene_depth;
+layout(binding = 2, rgba16f) uniform writeonly image2D color;
+layout(binding = 3, r32f) uniform writeonly image2D depth;
+layout(binding = 4, rg16f) uniform writeonly image2D motion;
+layout(binding = 5, r8) uniform writeonly image2D mask;
+layout(binding = 6, r32f) uniform readonly image2D dist_prev;
+layout(binding = 7, r32f) uniform writeonly image2D dist_out;
+// NaN guard (NPARK 11-21): the frame's counts, read back by the host (gfx_vk_exec.c ootdl_stats): non-finite colour, depth and motion texels replaced by 0,
+// and the largest input colour component (its float bits: non-negative floats order as their bits)
+layout(binding = 8, std430) buffer Stats { uint bad_color, bad_depth, bad_mv, in_max, out_max, out_bad, rsv0, rsv1; } st;
+layout(push_constant, row_major) uniform P {
+    mat4 reproject;   // this frame's jittered clip space to the frame before's without its jitter
+    vec2 jitter;      // this frame's jitter in clip space
+    ivec2 size;
+    vec4 dz;          // the projection's [2][2], [2][3], [3][2], [3][3] (row major)
+    int flags;
+    float zmask;      // the bias mask's value where the depth check finds own motion
+} pc;
+
+// View distance from ndc depth; 0 for the sky and other points at or past the far plane (dlaa_mv.comp dist)
+float dist(float zn) {
+    float den = pc.dz.z * zn - pc.dz.x;
+    if (abs(den) < 1e-12) return 0.0;
+    float z = (pc.dz.y - pc.dz.w * zn) / den;
+    return abs(z) < 1e7 ? abs(z) : 0.0;
+}
+
+// How far the frame before's distance near window position w is from `expect`, relative: the closest of the 3x3 pixels around
+// it; 0 off screen, 1e9 where the frame before had only sky there (dlaa_mv.comp miss)
+float miss(vec2 w, float expect) {
+    ivec2 q = ivec2(floor(w)), hi = pc.size - 1;
+    if (any(lessThan(q, ivec2(0))) || any(greaterThan(q, hi))) return 0.0;
+    float best = 1e9;
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++) {
+            float was = imageLoad(dist_prev, clamp(q + ivec2(dx, dy), ivec2(0), hi)).r;
+            if (was > 0.0) best = min(best, abs(was - expect) / expect);
+        }
+    return best;
+}
+
+void main() {
+    const ivec2 g = ivec2(gl_GlobalInvocationID.xy);
+    const bool inside = all(lessThan(g, pc.size));   // (no early return: subgroupMax below wants every invocation)
+    const ivec2 gc = min(g, pc.size - 1);
+    const vec2 size = vec2(pc.size);
+    const vec2 uv = (vec2(g) + 0.5) / size;
+    // srfit: DLSS's input may be larger than the render size (raised to the mode's smallest): colour (linear sampler) and depth (nearest) are read at the
+    // texel's centre in the picture's 0..1 space, which at the same size is the texel itself
+    const vec2 uvc = (vec2(gc) + 0.5) / size;
+    vec3 e = textureLod(scene, uvc, 0.0).rgb;
+    if (any(isnan(e)) || any(isinf(e))) { if (inside) atomicAdd(st.bad_color, 1u); e = vec3(0.0); }
+    e = max(e, vec3(0.0));
+    { const float m = subgroupMax(max(e.r, max(e.g, e.b))); if (subgroupElect()) atomicMax(st.in_max, floatBitsToUint(m)); }   // (one atomic a subgroup)
+    { const uint q = subgroupAdd(inside ? uint(min(e.r + e.g + e.b, 3.0) * 64.0) : 0u); if (subgroupElect()) atomicAdd(st.rsv1, q); }   // (a picture signature: whether the input changed)
+    if (!inside) return;
+    // pc.flags bit 3 (NPARK 11-21: HDR flag and exposure): the colour squared back to linear light and not clamped, for a feature made for HDR colour with its
+    // own exposure (Longshot's kSquare path for an HDR engine); without it the perceptual LDR colour clamped to 1 (Longshot's default)
+    // (11-21 23:35, NPARK: the 3D went black and stayed black, the HUD kept): the colour image is RGBA16F, whose largest finite value is 65504; a highlight's
+    // perceptual value past 256 squared beyond it into an infinity, which DLSS keeps in its history and spreads to the whole picture. Squared from at most 255
+    imageStore(color, g, vec4((pc.flags & 8) != 0 ? min(e, vec3(255.0)) * min(e, vec3(255.0)) : min(e, vec3(1.0)), 1.0));
+    // srfit2 (NPARK 11-21, "even horizontal lines like a notebook"): at 1.5x (480 -> 720 rows) the centre of every third row, (2y + 1) / 3 source rows, falls
+    // exactly on a source texel's edge, where a nearest sampler's rounding picks either neighbour, so depth (and the motion made from it) disagreed with the
+    // colour on those rows only. The depth texel is now found by integer math, the same for every row: floor((2g + 1) x render / (2 x size))
+    const ivec2 rs = textureSize(scene_depth, 0);
+    const ivec2 dq = min(((2 * gc + 1) * rs) / (2 * pc.size), rs - 1);
+    float d = texelFetch(scene_depth, dq, 0).r;
+    if (isnan(d) || isinf(d)) { atomicAdd(st.bad_depth, 1u); d = 0.0; }
+    imageStore(depth, g, vec4(d));
+    const bool zfit = (pc.flags & 2) != 0;
+    const float here = zfit ? dist(d * 2.0 - 1.0) : 0.0;
+    if (zfit) imageStore(dist_out, g, vec4(here));
+    vec2 mv = vec2(0.0);
+    float moved = 0.0;
+    if ((pc.flags & 1) != 0 && d >= 0.0 && d <= 1.0) {
+        const vec4 clip = vec4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, d * 2.0 - 1.0, 1.0);
+        const vec4 before = pc.reproject * clip;
+        if (before.w > 1e-6) {
+            const vec2 then = before.xy / before.w;
+            const vec2 now = clip.xy - pc.jitter;
+            const vec2 px = vec2(then.x - now.x, now.y - then.y) * 0.5 * size;
+            if (all(lessThan(abs(px), vec2(16384.0)))) mv = px;
+            if (zfit && (pc.flags & 4) != 0 && here > 0.0) {
+                const float there = dist(before.z / before.w);
+                const vec2 win = vec2(g) + 0.5 - vec2(pc.jitter.x, -pc.jitter.y) * 0.5 * size;   // this pixel's surface without the jitter
+                const float TOL = 0.04;
+                const float cam = there > 0.0 ? miss(win + mv, there) : 1e9;
+                if (cam > TOL) {
+                    moved = 1.0;
+                    if (miss(win, here) < TOL) mv = vec2(0.0);
+                }
+            }
+        }
+    }
+    if (any(isnan(mv)) || any(isinf(mv))) { atomicAdd(st.bad_mv, 1u); mv = vec2(0.0); }
+    imageStore(motion, g, vec4(mv, 0.0, 0.0));
+    imageStore(mask, g, vec4(moved * pc.zmask));
+}

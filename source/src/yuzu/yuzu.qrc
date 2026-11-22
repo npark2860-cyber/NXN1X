@@ -1,0 +1,17 @@
+<!--
+SPDX-FileCopyrightText: 2021 yuzu Emulator Project
+SPDX-License-Identifier: GPL-2.0-or-later
+-->
+
+<RCC>
+    <qresource prefix="/img">
+        <file alias="nxn1x.ico">../../dist/nxn1x.ico</file>
+        <file alias="nxn1x.png">../../dist/nxn1x.png</file>
+    </qresource>
+    <qresource prefix="/fonts">
+        <file alias="PretendardStd-Regular.otf">../../dist/fonts/pretendard/PretendardStd-Regular.otf</file>
+        <file alias="PretendardStd-Medium.otf">../../dist/fonts/pretendard/PretendardStd-Medium.otf</file>
+        <file alias="PretendardStd-SemiBold.otf">../../dist/fonts/pretendard/PretendardStd-SemiBold.otf</file>
+        <file alias="PretendardStd-Bold.otf">../../dist/fonts/pretendard/PretendardStd-Bold.otf</file>
+    </qresource>
+</RCC>

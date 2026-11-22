@@ -1,0 +1,32 @@
+# Windows ARM64 NCE 예외·재개 설계 검수
+
+2026-11-20 · 대상은 [tebfix5 검수 요청](ASTRA_NCE_RESUME_REVIEW_REQUEST.md)과 현재 Windows NCE 소스다. 정적 검토와 보관 로그를 사용했다.
+
+**판정. 브리지는 유지한다.** SP 기반 보정은 게스트가 실행 중 스택을 옮겼을 때 유효한 복구 수단이다. 다만 이 규칙은 대상 OS 스레드, 게스트 레지스터의 소유권, 전환 중인 다음 SP, 예외 핸들러가 실제로 쓸 수 있는 스택 공간까지 알아낼 수 없다. I1~I4를 전체 실행 경로의 보장으로 채택하기에는 다음 문제가 남는다.
+
+## 우선순위가 높은 발견
+
+| 우선순위 | 도달 경로와 결과 | 수정 방향 |
+|---|---|---|
+| P1 · I1 | NCE 핸들러가 쓰기 예외를 처리해 재개를 요청한다. 래퍼에서 `FitTebToSp(context.Sp)`가 `NoGuestContext`, `NotGuestMemory`, `QueryFailed`, `OutsideAllocation` 또는 `NoSp`를 반환해도 카운터와 crash ring만 쓰고 그대로 `EXCEPTION_CONTINUE_EXECUTION`을 반환한다. 이전 SP가 거절된 조건은 그대로 남는다. | 정상 재개는 확인된 대상 스택에만 허용한다. 실패 시에는 게스트 상태와 예외의 소유권에 맞는 호스트 복구 또는 다음 핸들러 전달을 선택한다. 이미 소비한 이벤트나 수정한 CONTEXT를 무조건 재전달하지 않도록 실패 분기까지 정의한다. |
+| P1 · I2/I3 | 래퍼는 C++ 프롤로그와 로컬 바이트 초기화를 거쳐 `&here`를 넘긴다. 이는 핸들러 스택 안의 주소이고 실제 SP와 다르다. 보정 함수도 TEB·TLS·게스트 상태를 읽고 `VirtualQuery`를 호출한다. 핸들러 진입 전 디스패처, 프롤로그 및 보정 도중에 발생하는 예외는 “첫 명령부터 유효”라는 주장에 포함되지 않는다. 재개 SP에 맞춘 뒤에도 기존 핸들러 스택 위에서 `CrashRingRecord`를 호출한다. | 진입 및 이탈의 최소 구간과 그 이후 호출 가능한 코드를 명시한다. 현재 핸들러용 SP와 복귀 대상 SP를 구분하고, 최종 경계 공개 뒤에는 진단 호출을 두지 않는다. SP가 속한 범위와 실제로 남은 쓰기 가능 공간을 별도로 판정한다. |
+| P1 · I3 | `OnWatchedWrite → nvn_dirty.on_fault → busy_wait` 계열의 시간 초과 분기에 `LOG`가 남아 있다. 일반 쓰기 예외의 정상 경로가 조용하더라도 오류 경로에서 로거를 다시 부를 수 있다. inline fault 설정도 첫 사용 시 VEH 안에서 지역 static 초기화와 `getenv`를 실행한다. | timeout의 주소·사유는 고정 크기 기록에 남겨 호스트 복귀 후 출력한다. 옵션을 초기화에서 확정하고 release 및 진단 빌드의 하위 호출까지 점검한다. |
+| P1 · I4 | SVC 트램펄린과 직접 x18 helper는 자체 생성 코드에서 호스트 TEB 경계와 SP를 바꾼다. 공통 호스트 브리지를 통하지 않는다. 반대로 직접 helper의 게스트 복귀는 진입 때 저장한 `windows_guest_stack_*`를 다시 사용한다. 게스트가 그사이에 fiber를 바꾸면 VEH가 한 번 보정했어도 이전 범위를 다시 게시할 수 있다. | 모든 전환에 같은 **대상 스택·스레드 검증 규칙**을 적용한다. 직접 경로는 현 guest SP가 저장된 범위·세대에 속하는지 확인하고, 불일치 시 검증된 복귀 경로를 사용한다. |
+| P1 · I1의 적용 범위 | 별도 S36 VEH는 자신이 처리한 매핑 예외에서 직접 `CONTINUE_EXECUTION`을 반환한다. 조건부 하드웨어 감시 VEH와 POSIX 호환 핸들러에도 직접 재개가 있다. NCE 래퍼가 호출되기 전에 다른 핸들러가 소비하거나 NCE가 `CONTINUE_SEARCH`한 뒤 소비할 수 있다. | 활성 빌드와 등록 순서별로 **최종 재개를 결정하는 핸들러**를 목록화하고 NCE 스레드 관련 경로에 동일한 판정을 적용한다. S36이 먼저 소비한 예외는 NCE crash ring의 성공·실패 분모에도 들어오지 않는다. |
+
+근거 위치는 NCE 래퍼 1581~1603행, watched write 1613행 이후, 페이지 추적 59~60행, 생성 코드 923·999·1732행, S36 179~203행이다. [NCE 핸들러](../source/src/core/arm/nce/arm_nce_windows.cpp) · [NVN 쓰기 감시](../source/src/core/nvn/nvn_layer.cpp) · [dirty 페이지 핸들러](../host/dm/gfx/nvn/nvn_dirty.c) · [코드 생성기](../source/src/core/arm/nce/patcher.cpp) · [S36](../source/src/common/host_memory.cpp) · [하드웨어 감시](../host/dm/windows/hwwatch_win.c) · [POSIX 호환 핸들러](../host/dm/windows/compat/posix_win.c)
+
+## Q1~Q6
+
+1. **P6 직접 복귀의 안전성은 입증되지 않았다.** 캐시 명령 처리 시 PC를 4 올리고 x18을 설정한 뒤 `ContinueContext`로 이동한다. 래퍼의 재개 SP 검사를 통과하지 않는다. 일반적으로 핸들러와 중단된 코드가 같은 스택 할당에 있으면 입구 보정이 양쪽을 덮지만, 코드가 확인하는 값은 각각 다른 주소다. `NtContinue`가 성공하더라도 다음 예외에 올바른 경계가 게시돼 있다는 보장은 별개다. 목표 CONTEXT의 PC·SP와 기대 스택을 확인하는 단일 직접 복귀 절차를 두고 P6 결과를 별도로 계수할 것을 권한다. E2의 첫 번째와 두 번째 `NtContinue`도 구분해야 한다. 현재 래퍼의 집계는 이 경로들을 세지 않는다. [직접 복귀](../source/src/core/arm/nce/windows_nce_transition.cpp)
+2. **P7에서는 대상 handle과 TEB가 일치한다는 전제에 조건이 있다.** 정상적으로 같은 OS 스레드에 바인딩된 epoch에서는 그 스레드의 handle을 suspend하며, Active/Busy gate가 업무 중 epoch의 퇴장을 막는다. 이전 로그의 VEH 스레드와 binding 불일치만으로 P7도 잘못된 대상이었다고 단정할 수 없다. 그러나 재바인딩 분기는 새 handle을 먼저 공개하고 TEB와 fiber 경계는 뒤에 저장한다. suspend는 handle을 한 번 읽고 transform은 나중에 `Teb()`를 다시 읽는다. 초기화에서 바인딩 실패 시에도 호출부는 로그 후 진행한다. 또한 `RedirectToHost`는 저장된 host base가 0이면 binding의 경계를 대신 사용한다. 이상 경로까지 일치를 보장하려면 handle·TEB·host fiber·epoch를 같은 바인딩으로 고정하고 실패 시 진입을 중단해야 한다. 기존 mismatch 카운터는 host base 차이도 세므로 그 값만으로 OS 스레드 불일치를 판정할 수 없다. [바인딩과 suspend](../source/src/core/arm/nce/windows_cross_thread_break.h) · [브리지 인자](../source/src/core/arm/nce/windows_nce_transition.cpp)
+3. **P8에서 게스트 상태의 무손실은 미검증이다.** 일반 guest-PC transform은 CONTEXT를 저장하고, x18 복구 transform은 성공한 Set 이후 복원한 게스트 상태를 게시한다. 이후 예외 기록의 주소가 원래 store를 가리키더라도 현재 CONTEXT의 PC가 브리지이면 둘은 같은 명령 시점이라는 증거가 아니다. 일반 저장 함수는 x18을 의도적으로 제외하고 exclusive monitor를 직렬화하지 않는다. exclusive store는 실패 후 정상적인 게스트 재시도가 가능해야 한다. 여러 위치를 쓰는 명령은 PC 재실행만으로 부분 쓰기·중복 효과·주소 갱신까지 증명할 수 없다. 합성 회귀에서는 최종 메모리·주소 레지스터·exclusive 성공 상태를 비중단 실행과 의미상 비교해야 한다. 부분 쓰기를 관측했다는 실기 근거는 이번 검수에 없다. [레지스터 저장 규칙](../source/src/core/arm/nce/windows_exception_context.h)
+4. **heap allocation의 범위로 논리적 fiber 여유 공간을 계산할 수 없다.** `AllocationOf`는 같은 AllocationBase의 영역을 합산한다. 보호·commit 경계나 그 안에서 게임이 배정한 작은 stack의 하한을 구하지 않는다. 또한 기존 TEB 범위가 SP를 포함하면 검증을 조기 종료한다. 이 값으로 16 KiB watched-write 또는 64 KiB inline 경로의 여유를 과대평가할 수 있다. 진입 시의 thread-local 할당 캐시도 주소 범위만 저장해 동일 VA 재매핑을 구분하지 못한다. 확인된 스택과 세대에서만 무거운 처리를 허용하고, fiber의 실제 하한을 모르면 최소 처리 경로를 사용한다. [VirtualQuery의 영역·보호 의미](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualquery)
+5. **누락된 상태는 SVC/x18 직접 전환, E2의 이중 복귀, 다른 VEH가 소비하는 경우, 경계를 게시했지만 아직 SP가 바뀌지 않은 구간이다.** 마지막 경우에 현재 SP로 경계를 다시 맞춘 뒤 이미 게시 명령을 지난 PC로 복귀하면 다음 `mov sp`에서 목적지 경계가 다시 어긋날 수 있다. 이는 가능한 비동기 전환 상태이며 해당 위치에서 실제 장애가 났다는 뜻은 아니다. 일반 APC·디버거의 CONTEXT 변경은 이 래퍼가 제어하지 않는다. 일반 APC를 모든 `NtContinue`의 필수 단계로 넣을 근거도 없다. 현재 호출은 두 번째 인자로 FALSE를 넘긴다. 디버거 연결·해제 시 동작과 내부 소유 경로를 검증 범위에 구분해 기록한다. [진입·복귀 어셈블리](../source/src/core/arm/nce/windows_nce_entry.asm) · [Windows VEH 순서](https://learn.microsoft.com/en-us/windows/win32/debug/vectored-exception-handling) · [SetThreadContext 계약](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-setthreadcontext)
+6. **`t_crash_depth`는 확인한 소스에서 제어 흐름에 쓰이지 않는다.** 스레드 로컬 선언, 래퍼 입구 증가, crash ring 복사, 정상 반환 감소가 전부다. P4~P6의 성공한 비복귀 호출은 감소를 건너뛴다. 1,400~1,500은 실제 중첩 깊이의 증거로 사용할 수 없다. 직접 복귀와 정상 반환을 모두 포함한 종료 계측을 두고 누적 진입·실제 중첩·직접 복귀를 구분하는 편이 정확하다. [래퍼 및 crash ring](../source/src/core/arm/nce/arm_nce_windows.cpp)
+
+## 로그 해석과 확인 순서
+
+- 17:18 StarFox 보관 로그에는 114.469초에 핸들러 진입 guest fit 16,384회, 래퍼 정상 재개 fit 집계에서 valid 395,702회가 기록됐다. 이는 마지막으로 출력된 표본이며 모든 경로의 실행 종료 시점 집계가 아니다. 117.358초에는 frame 4,004에서 호스트 대여 세그먼트 65,536개 중 65,489개에 게스트 범위가 없었고 1,024 MiB 상한에서 `FATAL NVN command memory`가 기록됐다. 이 실행에서 확인된 종료 원인은 NVN 명령 메모리다. 보관 로그가 없는 다른 abort의 원인은 미확인이다. [StarFox 보관 로그](../logs_poolcopy/ab_copy_171857.txt)
+- W1의 한 페이지 허용 조건, TEB 내부 오프셋, W4·W5는 요청서에 기록된 해당 Windows 빌드 관찰로 취급한다. Windows ARM64 공개 ABI는 x18을 플랫폼 전용으로 지정한다. W2에서도 OS가 사용자 예외를 전달한 것과 유효한 스택 프레임에서 복구 핸들러를 찾을 수 있는 것은 구별해야 한다. SP가 범위 안에 든다는 사실만으로 중첩 예외 복구가 보장되지는 않는다. [Windows ARM64 ABI](https://learn.microsoft.com/en-us/cpp/build/arm64-windows-abi-conventions?view=msvc-170)
+- **회귀 우선순위**는 fit 실패 시 정상 재개 0건, P6와 S36의 경로별 재개 결과, fiber 변경 뒤 직접 x18 왕복, P7의 대상 바인딩·세대 일치, P8의 최종 게스트 상태 순이다. 진단은 VEH 밖에서 수집·출력한다. 이 검수에서는 에뮬레이터 수정, ARM64 재빌드, 게임 재현을 실시하지 않았다.
