@@ -1,4 +1,4 @@
-<p align="center"><img src="source/dist/nxn1x.png" alt="NXN1X" width="200"></p>
+<p align="center"><img src="docs/images/nxn1x.png" alt="NXN1X" width="200"></p>
 
 # NXN1X 2.0
 
@@ -63,6 +63,8 @@ ninja -C build/release
 GPL-3.0-or-later. 부분별 라이선스는 [NOTICE.md](NOTICE.md)를 보세요. Nintendo 키·펌웨어·게임 파일은 포함하지 않으며 배포하지 않습니다. 직접 합법적으로 덤프한 파일을 사용하세요.
 
 ---
+
+<p align="center"><img src="docs/images/nxn1x.png" alt="NXN1X" width="200"></p>
 
 # NXN1X 2.0 (English)
 
