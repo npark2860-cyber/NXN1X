@@ -436,7 +436,7 @@ MainWindow::MainWindow(bool has_broken_vulkan)
     ConnectMenuEvents();
     ConnectWidgetEvents();
 
-    // gohide (NPARK 11-22, 1.0 release): Go mode is hidden for now: no Tools menu entry and no state polling (its playing-screen view never shows).
+    // gohide (NPARK 11-22, 2.0 release): Go mode is hidden for now: no Tools menu entry and no state polling (its playing-screen view never shows).
     // NXN1X_GO_MODE=1 brings it back
     if (const char* go_env = std::getenv("NXN1X_GO_MODE"); go_env && *go_env == '1') {
         SnapGoUi::Initialize();

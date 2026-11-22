@@ -1,4 +1,4 @@
-# NXN1X 1.0 기술 문서
+# NXN1X 2.0 기술 문서
 
 작성일: 2026-11-22. 대상: NXN1X 첫 배포(2026-11-22 빌드, `build\release\bin\NXN1X.exe`).
 
