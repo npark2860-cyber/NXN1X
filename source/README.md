@@ -1,4 +1,4 @@
-# NXN1X 1.0
+# NXN1X 2.0
 
 Windows ARM64와 Qualcomm Adreno 환경을 위한 Eden 기반 Nintendo Switch 에뮬레이터입니다. 기존 Eden/yuzu의 CPU·GPU 구현을 바탕으로, 이 장치에서 확인한 렌더링·동기화 문제와 NCE 실행 경로를 수정합니다.
 
