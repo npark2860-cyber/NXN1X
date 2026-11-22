@@ -436,14 +436,18 @@ MainWindow::MainWindow(bool has_broken_vulkan)
     ConnectMenuEvents();
     ConnectWidgetEvents();
 
-    SnapGoUi::Initialize();
-    auto* go_action = ui->menu_Tools->addAction(tr("Go 모드"));
-    connect(go_action, &QAction::triggered, this, [this] {
-        SnapGoDialog dialog(this);
-        dialog.exec();
-    });
-    connect(&go_state_timer, &QTimer::timeout, this, [this] { PollSnapGoState(); });
-    go_state_timer.start(200);
+    // gohide (NPARK 11-22, 1.0 release): Go mode is hidden for now: no Tools menu entry and no state polling (its playing-screen view never shows).
+    // NXN1X_GO_MODE=1 brings it back
+    if (const char* go_env = std::getenv("NXN1X_GO_MODE"); go_env && *go_env == '1') {
+        SnapGoUi::Initialize();
+        auto* go_action = ui->menu_Tools->addAction(tr("Go 모드"));
+        connect(go_action, &QAction::triggered, this, [this] {
+            SnapGoDialog dialog(this);
+            dialog.exec();
+        });
+        connect(&go_state_timer, &QTimer::timeout, this, [this] { PollSnapGoState(); });
+        go_state_timer.start(200);
+    }
 
     QtCommon::SetupHID();
     controller_dialog->refreshConfiguration();
