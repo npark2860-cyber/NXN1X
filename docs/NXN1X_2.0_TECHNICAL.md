@@ -207,9 +207,9 @@ HISTORY에 따르면 그 뒤로 NCE 크래시는 없었고 tebfix5의 "left" 카
 
 `design\NCE_CLEANUP_REVIEW.md`(읽기 전용 점검, 변경 없음)가 기본 경로에서 실행되는 항목을 정리했다. 주요 항목은 다음과 같다.
 - **s39 잠금 탈취**: 생성 코드의 `LockContext`가 2^23번 시도 후에도 잡혀 있는 잠금을 가져온다. TotK 정지(11-13) 대응 우회이고 기본 켜짐(`DM_S39`).
-- **BreakRescue**: 5 ms마다 폴링하는 감시 스레드. **불일치**: 주석은 "`EDEN_NCE_BREAK_RESCUE=1`일 때만 켜짐"인데 코드는 release에서 항상 켜져 있다(`windows_cross_thread_break.h:178` 대 `:235-245`).
+- **BreakRescue**: 5 ms마다 폴링하는 감시 스레드. 2026-11-22 클린업(P2)에서 모든 빌드에서 켜는 것으로 정했다(release 항상, 진단판은 `EDEN_NCE_BREAK_RESCUE=0`으로 끔). 주석을 맞췄고, 시작 로그 `NCE_BREAK_RESCUE on`과 2초마다 횟수 로그를 남긴다(`windows_cross_thread_break.h:176`).
 - **HWAoI 풀 재시도 스텁**: allocator의 슬롯 48 전체 풀 종료를 `svc #0xb`(1 ms sleep)로 최대 128번 재시도한다. 원인을 코드에서 찾지 못한 우회로 분류된다(`hwa_pool.h`).
-- **DK dkctl 스냅숏 스텁**: 기본 켜짐(`DM_DK_CTL_LOG=0`이면 끔).
+- **DK dkctl 스냅숏**: 2026-11-22 클린업(P3)에서 `NXN1X_DIAGNOSTICS` 빌드에서만 들어가게 했다.
 
 출처: `design\NCE_CLEANUP_REVIEW.md` 1절, 2절, 6절.
 
@@ -1040,7 +1040,7 @@ ninja -C build/release                      # 또는: ninja -C build/release bin
 | 13 | T15: GPU 쓰기 진행 중 CPU가 옛 값을 다시 쓰는 경우 | 알려진 한계로 문서화 | 같음 |
 | 14 | s48 range import 130-180 ms 튐, 장면 진입 2-3 s | 손대지 않음 | `OOT_BARRIER_DESIGN.md` 16절 |
 | 15 | DLSS SR 동기화 검증 오류 2건(NGX Evaluate 내부) | 11-19 probe 기록. 이후 재검증 기록 없음 | `DLSS_ARM64_CAPABILITIES.md` |
-| 16 | BreakRescue가 release에서 항상 켜짐(주석과 다름) | 결정 필요(P2) | `NCE_CLEANUP_REVIEW.md` |
+| 16 | BreakRescue가 release에서 항상 켜짐 | 해결(P2, 11-22): 모든 빌드에서 켬, 주석·로그 정리 | `NCE_CLEANUP_REVIEW.md` |
 | 17 | HDR 체크박스가 HDR10 출력을 보장하지 않음 | — | `DLSS_ARM64_TEST_REPORT.md` |
 | 18 | Vulkan validation layer가 노트북에 없음 | 동기화 검증 제한 | `dk-bananza-perf.md` |
 
@@ -1070,7 +1070,7 @@ ninja -C build/release                      # 또는: ninja -C build/release bin
 | 9 | `OCCLUSION_REDESIGN.md` 머리와 6절 제목은 s2/s3를 "syntax-checked only, not run"으로 적지만 메모리 노트에는 s3 게임 확인이 있다 | 4.11절 |
 | 10 | 0x0400E95004038001이 코드에서 "XC2 3.0.1"과 "BF2"로 다르게 불린다 | `arm_nce_windows.cpp`, `k_system_control.cpp` |
 | 11 | Bayonetta 3 ID가 01004A4010FEA000(메모리)과 0400E88025B1A000(NCE 검수의 주석 근거)으로 다르다. 같은 게임의 다른 판인지 문서에 없다 | 5.7절 |
-| 12 | BreakRescue 주석("기본 꺼짐")과 코드(release 항상 켜짐)가 다르다 | `windows_cross_thread_break.h` |
+| 12 | (해결됨) BreakRescue 주석("기본 꺼짐")과 코드가 달랐다. 11-22에 주석을 "모든 빌드에서 켜짐"으로 고침 | `windows_cross_thread_break.h:176` |
 | 13 | RELEASE 문서는 "모든 변경에 환경 변수 스위치"라고 하지만 `NXN1X_CRASH_RING`은 컴파일 정의이고 `maxe4k`에는 스위치가 없다 | 6.3절 |
 | 14 | `BUILD_LOG.txt`는 optfill(11-22 약 08:40)에서 끝난다. 11-22 배포 항목(dlssrange, NCE 정리, dirfs, maxe4k, htarr 등)이 없다 | `BUILD_LOG.txt` |
 | 15 | GPU 값의 의미가 두 가지다: 오버레이/s67 "GPU"(submission 구간 합, CPU replay 포함)와 README의 GPU%(Windows GPU 엔진) | 6.6절 |

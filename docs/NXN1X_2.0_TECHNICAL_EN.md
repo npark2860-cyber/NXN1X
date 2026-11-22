@@ -209,9 +209,9 @@ Source: `source\src\core\arm\nce\arm_nce_windows.cpp`, `host\dm\nxn1x\nvnh_rt.c`
 
 `design\NCE_CLEANUP_REVIEW.md` (a read-only review, no changes) lists the items that run on the default path. The main items are:
 - **s39 lock steal**: `LockContext` in generated code takes a lock that is still held after 2^23 tries. A workaround for the TotK hang (11-13), on by default (`DM_S39`).
-- **BreakRescue**: a watchdog thread that polls every 5 ms. **Mismatch**: the comment says "on only when `EDEN_NCE_BREAK_RESCUE=1`", but the code is always on in release (`windows_cross_thread_break.h:178` vs `:235-245`).
+- **BreakRescue**: a watchdog thread that polls every 5 ms. The 2026-11-22 cleanup (P2) decided to keep it on in every build (release: always; diagnostic builds: off with `EDEN_NCE_BREAK_RESCUE=0`). The comment was corrected; it logs `NCE_BREAK_RESCUE on` at start and a count every 2 s (`windows_cross_thread_break.h:176`).
 - **HWAoI pool retry stub**: retries the allocator's slot 48 full-pool exit with `svc #0xb` (1 ms sleep) up to 128 times. Classified as a workaround whose cause was not found in the code (`hwa_pool.h`).
-- **DK dkctl snapshot stub**: on by default (off with `DM_DK_CTL_LOG=0`).
+- **DK dkctl snapshot**: since the 2026-11-22 cleanup (P3) it is built only in `NXN1X_DIAGNOSTICS` builds.
 
 Source: `design\NCE_CLEANUP_REVIEW.md` sections 1, 2, and 6.
 
@@ -1042,7 +1042,7 @@ Source: `README.md`, `source\README.md`, `tools\` listing.
 | 13 | T15: CPU rewriting old values while a GPU write is in progress | Documented as a known limit | same |
 | 14 | s48 range import 130-180 ms spikes, scene entry 2-3 s | Not touched | `OOT_BARRIER_DESIGN.md` section 16 |
 | 15 | 2 DLSS SR synchronization validation errors (inside NGX Evaluate) | Recorded in the 11-19 probe. No later re-validation record | `DLSS_ARM64_CAPABILITIES.md` |
-| 16 | BreakRescue is always on in release (differs from the comment) | Decision needed (P2) | `NCE_CLEANUP_REVIEW.md` |
+| 16 | BreakRescue is always on in release | Resolved (P2, 11-22): on in every build, comment and log corrected | `NCE_CLEANUP_REVIEW.md` |
 | 17 | The HDR checkbox does not guarantee HDR10 output | — | `DLSS_ARM64_TEST_REPORT.md` |
 | 18 | No Vulkan validation layer on the laptop | Synchronization validation limited | `dk-bananza-perf.md` |
 
@@ -1072,7 +1072,7 @@ Source: `README.md`, `source\README.md`, `tools\` listing.
 | 9 | The header and section 6 title of `OCCLUSION_REDESIGN.md` say s2/s3 are "syntax-checked only, not run", but the memory notes have an in-game s3 confirmation | Section 4.11 |
 | 10 | 0x0400E95004038001 is called "XC2 3.0.1" and "BF2" in different places in the code | `arm_nce_windows.cpp`, `k_system_control.cpp` |
 | 11 | The Bayonetta 3 ID differs: 01004A4010FEA000 (memory) and 0400E88025B1A000 (comment basis in the NCE review). The documents do not say whether these are different editions of the same game | Section 5.7 |
-| 12 | The BreakRescue comment ("off by default") and the code (always on in release) differ | `windows_cross_thread_break.h` |
+| 12 | (Resolved) The BreakRescue comment ("off by default") differed from the code. Corrected on 11-22 to "on in every build" | `windows_cross_thread_break.h:176` |
 | 13 | The RELEASE document says "an environment variable switch for every change", but `NXN1X_CRASH_RING` is a compile definition and `maxe4k` has no switch | Section 6.3 |
 | 14 | `BUILD_LOG.txt` ends at optfill (11-22 around 08:40). The 11-22 release items (dlssrange, NCE cleanup, dirfs, maxe4k, htarr, etc.) are missing | `BUILD_LOG.txt` |
 | 15 | The GPU value has two meanings: overlay/s67 "GPU" (sum of submission intervals, includes CPU replay) and the README's GPU% (Windows GPU engine) | Section 6.6 |
