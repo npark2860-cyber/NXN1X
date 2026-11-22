@@ -1,3 +1,5 @@
+<p align="center"><img src="source/dist/nxn1x.png" alt="NXN1X" width="200"></p>
+
 # NXN1X 2.0
 
 Windows ARM64용 Nintendo Switch / Switch 2 에뮬레이터입니다. NVIDIA N1X(RTX Spark) 노트북에서 게임을 네이티브 코드 실행(NCE)과 NVN 호스트 레이어로 돌립니다.
